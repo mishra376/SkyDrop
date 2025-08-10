@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SkyDrop File Manager</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f9f9f9;
+            color: #333;
+        }
+
+        header {
+            background: #007bff;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 1.8em;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 30px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .file-upload {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #uploadBtn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        #uploadBtn:hover {
+            background: #0056b3;
+        }
+
+        .progress-container {
+            margin-top: 10px;
+            height: 20px;
+            background: #eee;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #28a745;
+            transition: width 0.2s;
+        }
+
+        .upload-info {
+            margin-top: 5px;
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        #fileList {
+            margin-top: 30px;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding: 10px 0;
+        }
+
+        .file-item span {
+            color: #007bff;
+            cursor: pointer;
+            word-break: break-all;
+        }
+
+        .file-item span:hover {
+            text-decoration: underline;
+        }
+
+        .delete-btn {
+            background: none;
+            border: none;
+            color: red;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+
+        .delete-btn:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+<header>SkyDrop File Manager</header>
+
+<div class="container">
+    <div class="file-upload">
+        <input type="file" id="fileInput">
+        <button id="uploadBtn">Upload File</button>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="upload-info" id="uploadSpeed">Upload speed: 0 KB/s</div>
+    </div>
+
+    <div id="fileList">
+        <h3>Uploaded Files</h3>
+        <div id="files"></div>
+    </div>
+</div>
+
+<script>
+    const apiBase = "http://localhost:8080/api/files";
+    const fileInput = document.getElementById("fileInput");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const progressBar = document.getElementById("progressBar");
+    const uploadSpeed = document.getElementById("uploadSpeed");
+    const filesDiv = document.getElementById("files");
+
+    uploadBtn.addEventListener("click", () => {
+        const file = fileInput.files[0];
+        if (!file) {
+            alert("Please select a file first.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${apiBase}/upload`, true);
+
+        const startTime = new Date().getTime();
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const percent = (e.loaded / e.total) * 100;
+                progressBar.style.width = `${percent}%`;
+
+                const now = new Date().getTime();
+                const timeElapsed = (now - startTime) / 1000; // seconds
+                const speed = e.loaded / timeElapsed;
+
+                let displaySpeed = speed / 1024;
+                let unit = "KB/s";
+
+                if (displaySpeed > 1024) {
+                    displaySpeed /= 1024;
+                    unit = "MB/s";
+                }
+
+                uploadSpeed.textContent = `Upload speed: ${displaySpeed.toFixed(2)} ${unit}`;
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status === 200) {
+                alert("Upload successful!");
+                fileInput.value = "";
+                progressBar.style.width = "0%";
+                uploadSpeed.textContent = "Upload speed: 0 KB/s";
+                loadFiles();
+            } else {
+                alert("Upload failed.");
+            }
+        };
+
+        xhr.onerror = () => alert("An error occurred during upload.");
+        xhr.send(formData);
+    });
+
+    function loadFiles() {
+        fetch(`${apiBase}/list`)
+            .then(res => res.json())
+            .then(data => {
+                filesDiv.innerHTML = "";
+                if (data.length === 0) {
+                    filesDiv.innerHTML = "<i>No files uploaded yet.</i>";
+                    return;
+                }
+
+                data.forEach(file => {
+                    const fileRow = document.createElement("div");
+                    fileRow.className = "file-item";
+
+                    const fileName = document.createElement("span");
+                    fileName.textContent = file;
+                    fileName.onclick = () => {
+                        window.open(`${apiBase}/download/${file}`, "_blank");
+                    };
+
+                    const deleteBtn = document.createElement("button");
+                    deleteBtn.className = "delete-btn";
+                    deleteBtn.textContent = "Delete";
+                    deleteBtn.onclick = () => deleteFile(file);
+
+                    fileRow.appendChild(fileName);
+                    fileRow.appendChild(deleteBtn);
+
+                    filesDiv.appendChild(fileRow);
+                });
+            })
+            .catch(err => {
+                console.error(err);
+                filesDiv.innerHTML = "<i>Failed to load files</i>";
+            });
+    }
+
+    function deleteFile(fileName) {
+        fetch(`${apiBase}/delete/${encodeURIComponent(fileName)}`, {
+            method: "DELETE"
+        })
+            .then(res => {
+                if (res.ok) {
+                    alert("File deleted.");
+                    loadFiles();
+                } else {
+                    alert("Failed to delete file.");
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert("Error deleting file.");
+            });
+    }
+
+    // Load on page start
+    loadFiles();
+</script>
+</body>
+</html>
